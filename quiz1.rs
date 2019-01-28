@@ -25,7 +25,7 @@ impl Drawable for Scrollbar {
 }
 
 struct DynScreen {
-    drawables: Vec<Box<dyn Drawable>>,
+    drawables: Vec<Box<Drawable>>,
 }
 
 impl DynScreen {
@@ -35,7 +35,7 @@ impl DynScreen {
         }
     }
 
-    pub fn add(&mut self, c: Box<dyn Drawable>) {
+    pub fn add(&mut self, c: Box<Drawable>) {
         self.drawables.push(c);
     }
 
@@ -68,6 +68,10 @@ impl<T: Drawable> StaticScreen<T> {
     }
 }
 
+// struct StaticScreen2 {
+//     drawables: Vec<Drawable>,
+// }
+
 // impl StaticScreen2 {
 //     pub fn new() -> Self {
 //         StaticScreen2 {
@@ -85,10 +89,6 @@ impl<T: Drawable> StaticScreen<T> {
 //         }
 //     }
 // }
-
-struct StaticScreen2 {
-    drawables: Vec<Drawable>,
-}
 
 fn main() {
     // Why this works?
