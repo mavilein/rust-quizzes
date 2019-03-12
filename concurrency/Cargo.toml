@@ -1,0 +1,11 @@
+[package]
+name = "concurrency"
+version = "0.1.0"
+authors = ["Marcus Böhm <boehm@prisma.io>"]
+edition = "2018"
+
+[dependencies]
+
+[[bin]]
+name = "concurrency"
+path = "main.rs"
