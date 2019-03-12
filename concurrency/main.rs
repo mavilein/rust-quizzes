@@ -70,18 +70,31 @@ mod tp {
     //! Some things need implementing!
 
     use std::sync::mpsc;
+    use std::sync::mpsc::{Receiver, Sender};
     use std::thread::{spawn, JoinHandle};
 
     pub struct ThreadPool {
         // TODO: Store the threads somehow
-        rrctr: usize,
+        round_robin_counter: usize,
+        channels: Vec<Sender<Job>>,
     }
 
     impl ThreadPool {
         pub fn new(size: usize) -> Self {
+            let mut channels = vec![];
+            for i in 0..size {
+                // join_handles.push(spawn)
+                let (tx, rx) = mpsc::channel();
+                let worker = Worker::new(i, rx);
+                channels.push(tx);
+                spawn(move || {
+                    worker.start();
+                });
+            }
             Self {
-                rrctr: 0,
                 // TODO: start the threads somehow
+                round_robin_counter: 0,
+                channels: channels,
             }
         }
 
@@ -91,9 +104,10 @@ mod tp {
             F: FnOnce() + Send + 'static,
         {
             let job = Box::new(f);
-
-            // TODO: Be a boss and assign jobs to workers
-            unimplemented!()
+            let worker = self.channels.get(self.round_robin_counter).unwrap();
+            worker.send(job).unwrap();
+            // TODO: this must round rob actually
+            self.round_robin_counter = self.round_robin_counter + 1;
         }
     }
 
@@ -115,13 +129,23 @@ mod tp {
 
     struct Worker {
         _id: usize,
-        _thread: JoinHandle<()>,
+        // _thread: JoinHandle<()>,
+        receiver: Receiver<Job>,
     }
 
     impl Worker {
-        fn new(_id: usize /* ... */) -> Self {
+        // FIXME: why the comment block after parameter?
+        fn new(_id: usize, receiver: Receiver<Job>) -> Self {
             // TODO: Start a worker that waits for work
-            unimplemented!()
+            // unimplemented!()
+            println!("Worker created(id: {})", _id);
+            Worker { _id, receiver }
+        }
+
+        fn start(&self) {
+            let job = self.receiver.recv().unwrap();
+            println!("Worker.start(id: {})", self._id);
+            job.call_box()
         }
     }
 
@@ -130,6 +154,7 @@ mod tp {
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
+use std::sync::{Arc, Mutex};
 
 use db::{Command, Database};
 use tp::ThreadPool;
@@ -138,16 +163,17 @@ fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
 
     // Store data
-    let storage = Database::new();
+    let database = Arc::new(Mutex::new(Database::new()));
 
     // Creates a threadpool with 4 connection workers
     let mut pool = ThreadPool::new(4);
 
     // This is an infinite iterator
     for stream in listener.incoming() {
+        let database_mutex = Arc::clone(&database);
         pool.queue(move || {
             let mut stream = stream.unwrap();
-
+            // FIXME: this loop will always exhaust one thread, right?
             loop {
                 let mut read_buffer = String::new();
                 let mut buffered_stream = BufReader::new(&stream);
@@ -156,14 +182,16 @@ fn main() {
                 }
 
                 let cmd = db::parse(&read_buffer);
+                println!("got command {:?}", cmd);
+                let mut database = database_mutex.lock().unwrap();
 
                 match cmd {
                     Ok(Command::Get) => send_reply(
                         &mut stream,
-                        storage.get().unwrap_or_else(|| "<empty>".into()),
+                        database.get().unwrap_or_else(|| "<empty>".into()),
                     ),
                     Ok(Command::Pub(s)) => {
-                        storage.store(s);
+                        database.store(s);
                         send_reply(&mut stream, "<done>");
                     }
                     Err(e) => send_reply(&mut stream, format!("<error: {:?}>", e)),
