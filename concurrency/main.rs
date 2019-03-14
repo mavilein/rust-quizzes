@@ -184,7 +184,7 @@ impl AsyncDatabaseImpl {
             let mut database = Database::new();
             loop {
                 let cmd = receiver.recv().unwrap();
-                println!("AsyncDatabaseImpl received command: {:?}", cmd);
+                // println!("AsyncDatabaseImpl received command: {:?}", cmd);
                 match cmd {
                     AsyncDatabaseCommand::Get(callback) => {
                         callback.send(database.get());
@@ -236,7 +236,7 @@ fn main() {
                 }
 
                 let cmd = db::parse(&read_buffer);
-                println!("got command {:?}", cmd);
+                // println!("got command {:?}", cmd);
                 // let mut database = database_mutex.lock().unwrap();
 
                 match cmd {
