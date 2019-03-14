@@ -68,7 +68,6 @@ mod db {
 
 mod tp {
     //! Some things need implementing!
-
     use std::sync::mpsc;
     use std::sync::mpsc::{Receiver, Sender};
     use std::thread::{spawn, JoinHandle};
@@ -150,7 +149,6 @@ mod tp {
     }
 
 }
-
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::net::{TcpListener, TcpStream};
@@ -159,18 +157,70 @@ use std::sync::{Arc, Mutex};
 use db::{Command, Database};
 use tp::ThreadPool;
 
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
+use std::thread::{spawn, JoinHandle};
+
+// trait AsyncDatabase {
+//     fn get(callback: Sender<Option<String>>);
+//     fn store(msg: String, callback: Sender<()>);
+// }
+
+#[derive(Clone)]
+struct AsyncDatabaseImpl {
+    sender: Sender<AsyncDatabaseCommand>,
+}
+
+#[derive(Debug)]
+enum AsyncDatabaseCommand {
+    Get(Sender<Option<String>>),
+    Store(String, Sender<()>),
+}
+
+impl AsyncDatabaseImpl {
+    fn new() -> AsyncDatabaseImpl {
+        let (sender, receiver) = mpsc::channel::<AsyncDatabaseCommand>();
+        spawn(move || {
+            let mut database = Database::new();
+            let cmd = receiver.recv().unwrap();
+            println!("AsyncDatabaseImpl received command: {:?}", cmd);
+            match cmd {
+                AsyncDatabaseCommand::Get(callback) => {
+                    callback.send(database.get());
+                }
+                AsyncDatabaseCommand::Store(value, callback) => {
+                    database.store(value);
+                    callback.send(());
+                }
+            }
+        });
+
+        AsyncDatabaseImpl { sender }
+    }
+
+    fn get(&self, callback: Sender<Option<String>>) {
+        self.sender.send(AsyncDatabaseCommand::Get(callback));
+    }
+    fn store(&self, value: String, callback: Sender<()>) {
+        self.sender
+            .send(AsyncDatabaseCommand::Store(value, callback));
+    }
+}
+
 fn main() {
     let listener = TcpListener::bind("127.0.0.1:7878").unwrap();
 
     // Store data
-    let database = Arc::new(Mutex::new(Database::new()));
+    // let database = Arc::new(Mutex::new(Database::new()));
+    let async_database = AsyncDatabaseImpl::new();
 
     // Creates a threadpool with 4 connection workers
     let mut pool = ThreadPool::new(4);
 
     // This is an infinite iterator
     for stream in listener.incoming() {
-        let database_mutex = Arc::clone(&database);
+        // let database_mutex = Arc::clone(&database);
+        let async_database_clone = async_database.clone();
         pool.queue(move || {
             let mut stream = stream.unwrap();
             // FIXME: this loop will always exhaust one thread, right?
@@ -183,15 +233,19 @@ fn main() {
 
                 let cmd = db::parse(&read_buffer);
                 println!("got command {:?}", cmd);
-                let mut database = database_mutex.lock().unwrap();
+                // let mut database = database_mutex.lock().unwrap();
 
                 match cmd {
-                    Ok(Command::Get) => send_reply(
-                        &mut stream,
-                        database.get().unwrap_or_else(|| "<empty>".into()),
-                    ),
+                    Ok(Command::Get) => {
+                        let (sender, receiver) = mpsc::channel::<Option<String>>();
+                        async_database_clone.get(sender);
+                        let result = receiver.recv().unwrap();
+                        send_reply(&mut stream, result.unwrap_or_else(|| "<empty>".into()));
+                    }
                     Ok(Command::Pub(s)) => {
-                        database.store(s);
+                        let (sender, receiver) = mpsc::channel::<()>();
+                        async_database_clone.store(s, sender);
+                        receiver.recv().unwrap();
                         send_reply(&mut stream, "<done>");
                     }
                     Err(e) => send_reply(&mut stream, format!("<error: {:?}>", e)),
