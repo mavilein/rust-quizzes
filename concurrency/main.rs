@@ -182,15 +182,17 @@ impl AsyncDatabaseImpl {
         let (sender, receiver) = mpsc::channel::<AsyncDatabaseCommand>();
         spawn(move || {
             let mut database = Database::new();
-            let cmd = receiver.recv().unwrap();
-            println!("AsyncDatabaseImpl received command: {:?}", cmd);
-            match cmd {
-                AsyncDatabaseCommand::Get(callback) => {
-                    callback.send(database.get());
-                }
-                AsyncDatabaseCommand::Store(value, callback) => {
-                    database.store(value);
-                    callback.send(());
+            loop {
+                let cmd = receiver.recv().unwrap();
+                println!("AsyncDatabaseImpl received command: {:?}", cmd);
+                match cmd {
+                    AsyncDatabaseCommand::Get(callback) => {
+                        callback.send(database.get());
+                    }
+                    AsyncDatabaseCommand::Store(value, callback) => {
+                        database.store(value);
+                        callback.send(());
+                    }
                 }
             }
         });
@@ -223,6 +225,8 @@ fn main() {
         let async_database_clone = async_database.clone();
         pool.queue(move || {
             let mut stream = stream.unwrap();
+            let (get_sender, get_receiver) = mpsc::channel::<Option<String>>();
+            let (pub_sender, pub_receiver) = mpsc::channel::<()>();
             // FIXME: this loop will always exhaust one thread, right?
             loop {
                 let mut read_buffer = String::new();
@@ -237,15 +241,13 @@ fn main() {
 
                 match cmd {
                     Ok(Command::Get) => {
-                        let (sender, receiver) = mpsc::channel::<Option<String>>();
-                        async_database_clone.get(sender);
-                        let result = receiver.recv().unwrap();
+                        async_database_clone.get(get_sender.clone());
+                        let result = get_receiver.recv().unwrap();
                         send_reply(&mut stream, result.unwrap_or_else(|| "<empty>".into()));
                     }
                     Ok(Command::Pub(s)) => {
-                        let (sender, receiver) = mpsc::channel::<()>();
-                        async_database_clone.store(s, sender);
-                        receiver.recv().unwrap();
+                        async_database_clone.store(s, pub_sender.clone());
+                        pub_receiver.recv().unwrap();
                         send_reply(&mut stream, "<done>");
                     }
                     Err(e) => send_reply(&mut stream, format!("<error: {:?}>", e)),
