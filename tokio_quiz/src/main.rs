@@ -65,35 +65,6 @@ impl Database {
     }
 }
 
-// The basic building block of the Tower library. Think of it like Twitter's
-// Finagle for Scala. You define the request (SelectQuery) and response
-// (empty). Future needs to be boxed to have dynamic dispatch.
-impl Service<SelectQuery> for Database {
-    type Response = &'static str;
-    type Error = Error;
-
-    // Our future type must implement Send, so when using Tokio's threadpool
-    // runtime, the futures can be sent between the threads. With the current
-    // thread runtime with only one reactor core, this is not required.
-    type Future = Box<Future<Item = Self::Response, Error = Self::Error> + Send>;
-
-    // Function to check is the connection ready to accept requests, here we
-    // acceept immediately.
-    fn poll_ready(&mut self) -> Poll<(), Self::Error> {
-        Ok(Async::Ready(()))
-    }
-
-    // Call the service, returning a future. Our first dumb implementation just
-    // does a blocking query and returns a simple `ok()` future when done. This
-    // needs to be improved.
-    fn call(&mut self, req: SelectQuery) -> Self::Future {
-        match self.query(req) {
-            Ok(_) => Box::new(future::ok("RESULT FOO")),
-            Err(e) => Box::new(future::err(e)),
-        }
-    }
-}
-
 // Query the database where field equals value
 #[derive(Clone)]
 struct SelectQuery {
@@ -118,9 +89,9 @@ fn main() {
     // The calls here go directly to the runtime, which will start executing
     // them in a separate thread.
     dbg!("Creating the first future");
-    rt.spawn(database.call(query.clone()).then(|_| future::ok(())));
+    rt.spawn(database.query(query.clone()));
     dbg!("Creating the second future");
-    rt.spawn(database.call(query.clone()).then(|_| future::ok(())));
+    rt.spawn(database.query(query.clone()));
 
     // Block the current thread until all the futures are finished, then exit
     // and print a stacktrace if the execution had any problems.
