@@ -1,10 +1,10 @@
-use futures::{self, future, Async, Future, Poll};
+use futures::{self, future, lazy, Async, Future, Poll};
 use sql::prelude::*;
 use std::io::{Error, ErrorKind};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
-use tokio::runtime::Runtime;
-use tower_service::Service;
+use tokio_threadpool::ThreadPool;
 
 // A Connection to query from a very slow database.
 struct Connection;
@@ -73,28 +73,34 @@ struct SelectQuery {
 }
 
 fn main() {
-    let mut database = Database::new();
+    let database = Arc::new(Database::new());
 
     let query = SelectQuery {
         field: String::from("foo"),
         value: String::from("bar"),
     };
 
-    let mut rt = Runtime::new().unwrap();
+    let thread_pool = ThreadPool::new();
 
-    // Create our two database calls, the dumb implementation will do a
-    // blocking query and this actually does not help to make our system
-    // faster.
-    //
-    // The calls here go directly to the runtime, which will start executing
-    // them in a separate thread.
     dbg!("Creating the first future");
-    rt.spawn(database.query(query.clone()));
+    let query_clone_1 = query.clone();
+    let db_clone_1 = database.clone();
+    thread_pool.spawn_handle(lazy(move || db_clone_1.query(query_clone_1)));
+
     dbg!("Creating the second future");
-    rt.spawn(database.query(query.clone()));
+    let query_clone_2 = query.clone();
+    let db_clone_2 = database.clone();
+    thread_pool.spawn_handle(lazy(move || db_clone_2.query(query_clone_2)));
+
+    // let final_future = handle1.and_then(|_| handle2).and_then(|_| {
+    //     dbg!("Futures are finished");
+    //     future::ok(())
+    // });
+
+    // let final_handle = thread_pool.spawn_handle(final_future);
 
     // Block the current thread until all the futures are finished, then exit
     // and print a stacktrace if the execution had any problems.
     dbg!("Waiting for futures to finish...");
-    rt.shutdown_on_idle().wait().unwrap();
+    thread_pool.shutdown_on_idle().wait().unwrap();
 }
