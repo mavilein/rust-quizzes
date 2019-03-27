@@ -92,12 +92,12 @@ fn main() {
     let db_clone_2 = database.clone();
     let handle2 = thread_pool.spawn_handle(lazy(move || db_clone_2.query(query_clone_2)));
 
-    // let final_future = handle1.and_then(|_| handle2).and_then(|_| {
-    //     dbg!("Futures are finished");
-    //     future::ok(())
-    // });
+    let final_future = handle1.and_then(|_| handle2).and_then(|_| {
+        dbg!("Futures are finished");
+        future::ok(())
+    });
 
-    // let final_handle = thread_pool.spawn_handle(final_future);
+    let final_handle = thread_pool.spawn_handle(final_future);
 
     // Block the current thread until all the futures are finished, then exit
     // and print a stacktrace if the execution had any problems.
