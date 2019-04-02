@@ -53,6 +53,7 @@ impl Database {
     }
 
     pub fn query(&self, query: SelectQuery) -> Result<(), Error> {
+        println!("Database received a query");
         let conn = self.pool.get()?;
         let query = select_from("table")
             .columns(&["foo", "bar"])
@@ -91,7 +92,8 @@ fn main() {
     dbg!("Creating the second future");
     let query_clone_2 = query.clone();
     let db_clone_2 = database.clone();
-    let handle2 = thread_pool.spawn_handle(lazy(move || db_clone_2.query(query_clone_2)));
+    let future_2 = lazy(move || db_clone_2.query(query_clone_2));
+    let handle2 = thread_pool.spawn_handle(future_2);
 
     let final_future = handle1.and_then(|_| handle2).and_then(|_| {
         dbg!("Futures are finished");
