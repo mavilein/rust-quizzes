@@ -85,7 +85,8 @@ fn main() {
     dbg!("Creating the first future");
     let query_clone_1 = query.clone();
     let db_clone_1 = database.clone();
-    let handle1 = thread_pool.spawn_handle(lazy(move || db_clone_1.query(query_clone_1)));
+    let future_1 = lazy(move || db_clone_1.query(query_clone_1));
+    let handle1 = thread_pool.spawn_handle(future_1);
 
     dbg!("Creating the second future");
     let query_clone_2 = query.clone();
